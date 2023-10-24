@@ -1,0 +1,346 @@
+---
+title: "STATS506_ps4"
+author: "Nuona Chen"
+format: html
+editor: visual
+---
+
+## Problem 1 - Tidyverse
+
+### a.
+
+```{r}
+library(nycflights13, quietly = TRUE)
+library(tidyverse, quietly = TRUE)
+library(airportr, quietly = TRUE)
+```
+
+```{r}
+flights %>% mutate(dep_delay = abs(dep_time - sched_dep_time)) %>% group_by(origin) %>% summarize(mean_departure_delay = mean(dep_delay, na.rm = TRUE), median_depature_delay = median(dep_delay, na.rm = TRUE)) %>% arrange(desc(mean_departure_delay)) %>% mutate(origin = sapply(origin, airport_lookup))
+```
+
+```{r}
+flights %>% mutate(arr_delay = abs(arr_time - sched_arr_time)) %>% group_by(dest) %>% filter(n()>=10) %>% summarize(mean_arrival_delay = mean(arr_delay, na.rm = TRUE), median_arrival_delay = median(arr_delay, na.rm = TRUE)) %>% arrange(desc(mean_arrival_delay)) %>% mutate(dest = sapply(dest, airport_lookup)) %>% print(n = length(unique(flights$dest)))
+```
+
+### b.
+
+```{r}
+#temp = flights %>% mutate(speed = distance/air_time) %>% group_by(tailnum) %>% summarize(n = n(), avg_speed = mean(speed, na.rm = TRUE)) %>% arrange(desc(avg_speed))#%>% filter(avg_speed == max(avg_speed)) 
+
+flights %>% mutate(speed = distance/(air_time/60)) %>% filter(!is.na(speed)) %>% group_by(tailnum) %>% summarize(avg_speed = mean(speed), number_of_flights = n()) %>% filter(avg_speed == max(avg_speed)) %>% left_join(planes, by = "tailnum") %>% select(manufacturer, model, avg_speed, number_of_flights)
+```
+
+## Problem 2 - get_temp()
+
+```{r}
+library(tibbletime, quietly = TRUE)
+nnmaps = read.csv("/Users/nuonachen/Downloads/chicago-nmmaps.csv")
+get_temp <- function(month, year, data, celsius = FALSE, average_fn = mean){
+  if(!is.numeric(month)){
+    month = which(grepl(substr(month, 1, 3), month.abb))
+  }
+  else{
+    if(month > 12){return(NA)}
+  }
+  data = data %>% mutate(date = as.Date(date))
+  data = as_tbl_time(data, index = date)
+  year_month = paste(c(year, "-", month), collapse = "")
+  avg_temp = data %>% filter_time( ~year_month) %>% select(temp) %>% lapply(average_fn)
+
+  avg_temp = unlist(unname(avg_temp))
+  
+  if(!celsius) {return(avg_temp)}
+  else{
+    return((avg_temp - 32) * 5/9)
+  }
+
+}
+
+```
+
+```{r}
+get_temp("Apr", 1999, data = nnmaps)
+get_temp("Apr", 1999, data = nnmaps, celsius = TRUE)
+get_temp(10, 1998, data = nnmaps, average_fn = median)
+get_temp(13, 1998, data = nnmaps) #error 
+get_temp(2, 2005, data = nnmaps)
+get_temp("November", 1999, data =nnmaps, celsius = TRUE,
+         average_fn = function(x) {
+           x %>% sort -> x
+           x[2:(length(x) - 1)] %>% mean %>% return
+         })
+```
+
+## Problem 3 - SAS
+
+link to output: https://github.com/cnuona/STATS506/blob/main/Problem%20Set/PS04/PS4_p3_output.pdf
+
+### a. 
+
+```         
+filename RECS2020 url 'https://www.eia.gov/consumption/residential/data/2020/csv/recs2020_public_v5.csv';
+
+proc import out = RECS2020_data 
+  datafile = RECS2020
+  dbms = csv
+  replace;
+  getnames = YES;
+run;
+
+proc freq data = RECS2020_data noprint;
+	table state_name / out = state_freq;
+	weight NWEIGHT;
+run;
+
+proc sort data = state_freq;
+	by descending PERCENT;
+run;
+
+proc print data = state_freq;
+run;
+```
+
+California has the highest percentage of records - 10.67%, after adjusting for the given weights. Michigan has 3.1725% of the records.
+
+### b. 
+
+```         
+data positive_electric_cost;
+	set RECS2020_data;
+	where DOLLAREL > 0;
+	keep DOLLAREL;
+run;
+proc sgplot data = positive_electric_cost;
+	histogram DOLLAREL;
+run;
+```
+
+### c.
+
+```         
+data positive_electric_cost_log;
+	set positive_electric_cost;
+	log_DOLLAREL = log10(DOLLAREL);
+run;
+
+proc sgplot data = positive_electric_cost_log;
+	histogram log_DOLLAREL;
+run;
+```
+
+### d. 
+
+```         
+data lr_data;
+	set RECS2020_data;
+	where PRKGPLC1 >= 0 AND DOLLAREL > 0;
+	keep PRKGPLC1 total_room log_DOLLAREL NWEIGHT DOLLAREL;
+	total_room = sum(TOTROOMS, NCOMBATH, NHAFBATH);
+	log_DOLLAREL = log10(DOLLAREL);
+run; 
+
+proc reg data = lr_data;
+	model log_DOLLAREL = total_room PRKGPLC1;
+	weight NWEIGHT;
+	output out = fitted_cost
+			p = predicted; /*e.*/
+
+run;
+```
+
+### e.
+
+```         
+data fitted_cost;
+	set fitted_cost;
+	EXP_predicted = EXP(predicted);
+run;
+
+proc sgplot data = fitted_cost;
+	scatter x = DOLLAREL y = EXP_predicted;
+	xaxis label = 'Total Eletricity Cost';
+	yaxis label = 'exp(predicted electricity cost)';
+run;
+```
+
+## Problem 4
+
+### b. Import the data 
+
+```         
+proc import out = survey2022 
+	datafile = "\\tsclient\Remote Desktop Virtual Drive\Uploads\public2022.csv"
+	dbms = csv
+	replace;
+	getnames = YES;
+run;
+
+proc sql;
+	create table variables as 
+	select B3, ND2, B7_b, GH1, ppeducat, race_5cat
+	from survey2022;
+```
+
+### c. Predictors and outcome variables were saved in the Stata format named "variables". 
+
+### d.
+
+```         
+. use "K:\variables.dta"
+
+. describe
+
+Contains data from K:\variables.dta
+ Observations:        11,667                  
+    Variables:             8                  
+--------------------------------------------------------------------
+Variable      Storage   Display    Value
+    name         type    format    label      Variable label
+--------------------------------------------------------------------
+B3              str22   %22s                  
+ND2             str18   %18s                  
+B7_b            str12   %12s                  
+GH1             str60   %60s                  
+ppeducat        str66   %66s                  
+race_5cat       str10   %10s                  
+weight_pop      double  %12.0g                
+CaseID          double  %12.0g                
+--------------------------------------------------------------------
+Sorted by: 
+
+. 
+```
+
+There are 11,667 in the original dataset. Thus, data was extracted successfully.
+
+### e. 
+
+```         
+. replace B3 = "worse" if ustrpos(B3, "worse")>0
+(4,296 real changes made)
+
+. replace B3 = "same/better" if B3 == "About the same" | B3 == "Some
+> what better off" | B3 == "Much better off"
+(7,371 real changes made)
+
+
+. replace ND2 = "higher" if ustrpos(ND2, "higher")>0
+(3,980 real changes made)
+
+. replace ND2 = "same" if ustrpos(ND2, "same")>0
+(7,201 real changes made)
+
+. replace ND2 = "lower" if ustrpos(ND2, "lower")>0
+(486 real changes made)
+
+.
+```
+
+### f.
+
+```         
+. svyset CaseID [pw=weight_pop]
+
+Sampling weights: weight_pop
+             VCE: linearized
+     Single unit: missing
+        Strata 1: <one>
+ Sampling unit 1: CaseID
+           FPC 1: <zero>
+
+. 
+```
+
+```         
+. gen B3_= 0 if B3 == "worse"
+(7,371 missing values generated)
+
+. replace B3_=1 if B3 == "same/better"
+(7,371 real changes made)
+
+.
+
+. encode ND2, gen(ND2_)
+
+. encode B7_b, gen(B7_b_)
+
+. encode GH1, gen(GH1_)
+
+. encode ppeducat, gen(ppeducat_)
+
+. encode race_5cat, gen(race_5cat_)
+```
+
+```         
+. logit B3_ i.ND2_ i.B7_b_ i.GH1_ i.ppeducat_ i.race_5cat_
+
+Iteration 0:  Log likelihood = -7676.8916  
+Iteration 1:  Log likelihood = -6977.2499  
+Iteration 2:  Log likelihood = -6964.4377  
+Iteration 3:  Log likelihood = -6964.3968  
+Iteration 4:  Log likelihood = -6964.3968  
+
+Logistic regression                                    Number of obs =  11,667
+                                                       LR chi2(15)   = 1424.99
+                                                       Prob > chi2   =  0.0000
+Log likelihood = -6964.3968                            Pseudo R2     =  0.0928
+
+--------------------------------------------------------------------------------------
+                 B3_ | Coefficient  Std. err.      z    P>|z|     [95% conf. interval]
+---------------------+----------------------------------------------------------------
+                ND2_ |
+              lower  |   .2126736   .1101563     1.93   0.054    -.0032287    .4285759
+               same  |   .0202127   .0444317     0.45   0.649    -.0668719    .1072972
+                     |
+               B7_b_ |
+               Good  |  -.4241393   .3260896    -1.30   0.193    -1.063263    .2149846
+          Only fair  |  -1.180777   .3216074    -3.67   0.000    -1.811116   -.5504384
+               Poor  |  -2.319875   .3217851    -7.21   0.000    -2.950563   -1.689188
+                     |
+                GH1_ |
+Own your home fr..)  |  -.4385808   .0912654    -4.81   0.000    -.6174577   -.2597039
+Own your home wit..  |  -.3575261    .087894    -4.07   0.000    -.5297953    -.185257
+           Pay rent  |  -.2576894   .0903923    -2.85   0.004     -.434855   -.0805238
+                     |
+           ppeducat_ |
+High school grad..)  |  -.1147403   .0540461    -2.12   0.034    -.2206687   -.0088119
+No high school di..  |  -.2016394   .0919487    -2.19   0.028    -.3818554   -.0214233
+Some college or A..  |  -.1044884   .0510057    -2.05   0.041    -.2044577   -.0045191
+                     |
+          race_5cat_ |
+              Black  |   .2599854   .1335731     1.95   0.052     -.001813    .5217839
+           Hispanic  |  -.2476503   .1270713    -1.95   0.051    -.4967055    .0014049
+              Other  |  -.5471805   .1508628    -3.63   0.000    -.8428661    -.251495
+              White  |  -.4294138    .114607    -3.75   0.000    -.6540394   -.2047883
+                     |
+               _cons |   2.766196   .3481691     7.94   0.000     2.083797    3.448595
+--------------------------------------------------------------------------------------
+
+. 
+```
+
+Among those who rate excellent for the economic conditions in this country, neither own nor pay rent, and hold Bachelor's degrees or higher, the odds of having better financial situations among for those that think the chance of experiencing a natural disaster is low is exp(0.2126736) = 1.24 = 124% higher than those that think the chance of experiencing a natural disaster is high. However, this association is not statistically significant with a p-value \> 0.05.
+
+Among those who rate excellent for the economic conditions in this country, neither own nor pay rent, and hold Bachelor's degrees or higher, the odds of having better financial situations among for those that think the chance of experiencing a natural disaster is same is exp(0.0202127) = 1.02 = 102% higher than those that think the chance of experiencing a natural disaster is high. However, this association is not statistically significant with a p-value \> 0.05.
+
+### g.
+
+```         
+. export delimited using "K:\stata_data.csv", replace
+(file K:\stata_data.csv not found)
+file K:\stata_data.csv saved
+```
+
+### h. 
+
+```{r}
+library(survey)
+stata_data = read.csv("/Users/nuonachen/Downloads/stata_data.csv")
+design = svydesign(id = ~ CaseID, weight = ~ weight_pop, data = stata_data)
+
+model = svyglm(I(B3_==1)~factor(ND2)+factor(B7_b)+factor(GH1)+factor(ppeducat)+factor(race_5cat), design=design, family=quasibinomial())
+
+psrsq(model, type="Nagelkerke")
+
+```
