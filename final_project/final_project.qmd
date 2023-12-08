@@ -1,0 +1,181 @@
+---
+title: "Final Project"
+author: "Nuona Chen"
+format: html
+editor: visual
+---
+
+```{r}
+library(jsonlite)
+library(dplyr)
+library(tidyr)
+library(openintro)
+library(nlme)
+cms = read.csv("/Users/nuonachen/Downloads/Medicare_Physician_Other_Practitioners_by_Geography_and_Service_2020.csv")
+spending = read.csv("/Users/nuonachen/Downloads/raw_data.csv")
+
+```
+
+```{r}
+clean_data = cms %>% filter(Rndrng_Prvdr_Geo_Lvl != "National" & Rndrng_Prvdr_Geo_Cd != "") %>% left_join(select(spending, c("Total.Medicare.Part.A.and.or.Part.B.Program.Payments", "Location")), by = c("Rndrng_Prvdr_Geo_Desc" = "Location")) 
+
+#names(clean_data)[names(clean_data) == 'Rndrng_Prvdr_Geo_Desc'] <- 'STATE'
+
+#clean_data%>% left_join(select(tax, c("STATE", "A06500")), by = "STATE") 
+clean_data["y"] = clean_data$Avg_Mdcr_Stdzd_Amt/clean_data$Avg_Sbmtd_Chrg
+
+```
+
+```{r}
+write.csv(clean_data, "/Users/nuonachen/Downloads/clean_data.csv", row.names = FALSE)
+```
+
+```{r}
+clean_data = read.csv("/Users/nuonachen/P3_files/clean_data_f.csv")
+clean_data[clean_data$y > 1,]$y = 1
+#clean_data = na.omit(clean_data)
+```
+
+![](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAaCAYAAADFTB7LAAAAcElEQVR4Xu3OwQmAQAxE0bClWYCW5N06tM6V2YPg5CjoF/JhLoHAi6iqn9eOefUbqrYvHY0cQDLyAlKRNyARmYA0ZMLRkAlGQyaU72tkAtlim7r/vJqDUDjlKBROOQyFU2icQuMUGqfQuBEaV1XPOwEx96nYACK8+wAAAABJRU5ErkJggg== "Run Current Chunk")
+
+```{r}
+y= scale(clean_data$y, center = TRUE, scale = TRUE)
+hist(y, main = "Distribution of Y")
+
+qqnorm(y)
+qqline(y)
+
+y_ = scale(clean_data$y^(1/3), center = TRUE, scale = TRUE)
+hist(y_, main = "Distribution of Cubic Root of Y", xlab = "Reimbursement Percentage")
+
+qqnorm(y_)
+qqline(y_)
+#clean_data$y = scale(clean_data$y, center = T, scale = T)
+
+#c = c("y", "Tot_Rndrng_Prvdrs", "Tot_Benes", "Tot_Srvcs", "Tot_Bene_Day_Srvcs", "Total.Medicare.Part.A.and.or.Part.B.Program.Payments","HCPCS_freq")
+#clean_data[c] = clean_data %>% select(all_of(c)) %>% scale(center = TRUE, scale = TRUE)
+```
+
+```{r}
+c = c( "y", "HCPCS_Drug_Ind", "Place_Of_Srvc", "Tot_Rndrng_Prvdrs", "Tot_Benes", "Tot_Srvcs", "Tot_Bene_Day_Srvcs", "Total.Medicare.Part.A.and.or.Part.B.Program.Payments","HCPCS_freq", "Rndrng_Prvdr_Geo_Desc")
+
+clean_data = clean_data %>% select(all_of(c))%>% filter(Rndrng_Prvdr_Geo_Desc != "District of Columbia")
+```
+
+```{r}
+library(vtable)
+st(clean_data, group = "Rndrng_Prvdr_Geo_Desc",group.long = T, file = "/Users/nuonachen/Downloads/test") 
+
+```
+
+```{r}
+library(ggplot2)
+ggplot(aes(x = Rndrng_Prvdr_Geo_Desc, y= y), data = clean_data %>% filter(!is.na(Total.Medicare.Part.A.and.or.Part.B.Program.Payments))) + geom_boxplot() +  theme(axis.text.x = element_text(angle=90, vjust=1, hjust=1)) + ggtitle("Medicaid Reimbursement Percentage by State")+theme(plot.title = element_text(hjust = 0.5)) + xlab("States") + ylab("Medicaid Reimbursement Percentage")
+```
+
+```{r}
+#ggplot(clean_data, aes(x = Tot_Rndrng_Prvdrs, y = y, color = Rndrng_Prvdr_Geo_Desc)) + geom_point(size = 2,show.legend = FALSE)
+
+#ggplot(clean_data, aes(x = Tot_Rndrng_Prvdrs, y = y, color = Rndrng_Prvdr_Geo_Desc)) + geom_point(size = 2,show.legend = FALSE)
+
+ggplot(aes(x = Tot_Rndrng_Prvdrs, y = y, color = Rndrng_Prvdr_Geo_Desc), data = clean_data) + geom_point(size= 2,show.legend = FALSE) + xlim(0, 1000)+facet_wrap(~ Rndrng_Prvdr_Geo_Desc) +  theme(
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +theme(
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+```
+
+```{r}
+c = c( "y", "Tot_Rndrng_Prvdrs", "Tot_Benes", "Tot_Srvcs", "Tot_Bene_Day_Srvcs", "Total.Medicare.Part.A.and.or.Part.B.Program.Payments","HCPCS_freq")
+clean_data[c] = clean_data %>% select(all_of(c)) %>% scale(center = T, scale = T)
+
+```
+
+#### 1. Hypothesis: The random effects associated with the State-specific intercepts is not significant.
+
+```{r}
+library(lme4)
+m1= lme(y^(1/3)~ HCPCS_Drug_Ind + Place_Of_Srvc + Tot_Rndrng_Prvdrs +Tot_Benes+ Tot_Srvcs + Tot_Bene_Day_Srvcs + Total.Medicare.Part.A.and.or.Part.B.Program.Payments + HCPCS_freq, random = ~1 | Rndrng_Prvdr_Geo_Desc, clean_data, na.action=na.exclude, method = "REML")
+
+#m1_= lmer(y^(1/3) ~ HCPCS_Drug_Ind + Place_Of_Srvc + Tot_Rndrng_Prvdrs +Tot_Benes+ Tot_Srvcs + Tot_Bene_Day_Srvcs + Total.Medicare.Part.A.and.or.Part.B.Program.Payments + HCPCS_freq + (1 | Rndrng_Prvdr_Geo_Desc), clean_data, na.action=na.exclude)
+
+m2 = gls(y^(1/3) ~ HCPCS_Drug_Ind + Place_Of_Srvc + Tot_Rndrng_Prvdrs +Tot_Benes+ Tot_Srvcs + Tot_Bene_Day_Srvcs + Total.Medicare.Part.A.and.or.Part.B.Program.Payments + HCPCS_freq, clean_data, na.action = na.exclude, method = "REML")
+```
+
+```{r}
+anova(m1, m2)
+summary(m1)
+```
+
+p-value = 0.0001/2 \< 0.001. The test statistics L ratio is significant. Thus, we keep the random effects associated with STATE.
+
+#### 2. Hypothesis: The variance of the residuals is constant for HCPCS_Drug_Ind and Place_Of_Srvc.
+
+```{r}
+m3 = lme(y^(1/3)~ HCPCS_Drug_Ind + Place_Of_Srvc + Tot_Rndrng_Prvdrs +Tot_Benes+ Tot_Srvcs + Tot_Bene_Day_Srvcs + Total.Medicare.Part.A.and.or.Part.B.Program.Payments + HCPCS_freq, random = ~1 | Rndrng_Prvdr_Geo_Desc, clean_data, na.action=na.exclude, method = "REML", weights = varIdent(form = ~1 | Place_Of_Srvc))
+
+m4 = lme(y^(1/3)~ HCPCS_Drug_Ind + Place_Of_Srvc + Tot_Rndrng_Prvdrs +Tot_Benes+ Tot_Srvcs + Tot_Bene_Day_Srvcs + Total.Medicare.Part.A.and.or.Part.B.Program.Payments + HCPCS_freq, random = ~1| Rndrng_Prvdr_Geo_Desc, clean_data, na.action=na.exclude, method = "REML", weights = varIdent(form = ~1| Place_Of_Srvc*HCPCS_Drug_Ind))
+anova(m3, m1)
+
+anova(m1, m4)
+```
+
+```{r}
+library(MuMIn)
+
+r.squaredGLMM(m5)
+plot(fitted(m4), resid(m4))
+plot(m4)
+
+mean((clean_data$y^(1/3) - fitted(m5))^2, na.rm = T)
+
+
+summary(m5)
+
+m6_full = lme(y^(1/3)~ HCPCS_Drug_Ind + Place_Of_Srvc + Tot_Rndrng_Prvdrs +Tot_Benes+ Tot_Srvcs + Tot_Bene_Day_Srvcs + Total.Medicare.Part.A.and.or.Part.B.Program.Payments + HCPCS_freq, random = ~1| Rndrng_Prvdr_Geo_Desc, clean_data, na.action=na.exclude, method = "ML", weights = varIdent(form = ~1| Place_Of_Srvc*HCPCS_Drug_Ind))
+
+m6_reduced = lme(y^(1/3)~ HCPCS_Drug_Ind + Place_Of_Srvc + Tot_Rndrng_Prvdrs + Tot_Srvcs  + Total.Medicare.Part.A.and.or.Part.B.Program.Payments + HCPCS_freq, random = ~1| Rndrng_Prvdr_Geo_Desc, clean_data, na.action=na.exclude, method = "ML", weights = varIdent(form = ~1| Place_Of_Srvc*HCPCS_Drug_Ind))
+anova(m6_full, m6_reduced)
+
+m6_reduced = lme(y^(1/3)~ HCPCS_Drug_Ind + Place_Of_Srvc + Tot_Rndrng_Prvdrs + Tot_Srvcs  + Total.Medicare.Part.A.and.or.Part.B.Program.Payments + HCPCS_freq, random = ~1| Rndrng_Prvdr_Geo_Desc, clean_data, na.action=na.exclude, method = "REML", weights = varIdent(form = ~1| Place_Of_Srvc*HCPCS_Drug_Ind))
+
+```
+
+```{r}
+plot(m6_reduced)
+ggplot(data.frame(x=clean_data$HCPCS_freq,pearson=residuals(m6_reduced,type="pearson")),
+      aes(x=x,y=pearson)) +
+    geom_point(na.rm = T) + xlim(0, quantile(clean_data$Total.Medicare.Part.A.and.or.Part.B.Program.Payments)[4]) + 
+    theme_bw() + xlab("HCPCS_freq") 
+```
+
+```{r}
+means <- aggregate(clean_data[,c("Tot_Rndrng_Prvdrs","Tot_Srvcs", "Total.Medicare.Part.A.and.or.Part.B.Program.Payments", "HCPCS_freq")],by=list(clean_data$Rndrng_Prvdr_Geo_Desc),FUN=mean) %>% na.omit %>% filter(Group.1 != "District of Columbia")
+lmcoefs <- summary(lm(y ~ Tot_Rndrng_Prvdrs + Tot_Srvcs + Total.Medicare.Part.A.and.or.Part.B.Program.Payments + HCPCS_freq+ Rndrng_Prvdr_Geo_Desc, data=clean_data, na.action = na.exclude))$coefficients[,"Estimate"]
+means$effects <- c(0,lmcoefs[substr(names(lmcoefs),1,21) == "Rndrng_Prvdr_Geo_Desc"])
+means$effects <- means$effects - mean(means$effects)
+cor(means[,c("Tot_Rndrng_Prvdrs","Tot_Srvcs",'Total.Medicare.Part.A.and.or.Part.B.Program.Payments', "effects")])
+
+```
+
+```{r}
+qqnorm(residuals(m6_reduced))
+```
+
+```{r}
+library(reghelper)
+library(lme4)
+library(arsenal)
+ICC(m6_reduced)
+
+
+summary(m6_reduced)
+random.effects(m6_reduced)
+table_one <- tableby(Rndrng_Prvdr_Geo_Desc ~ ., data = clean_data %>% na.omit) 
+summary_data = summary(table_one, title = "test")
+
+
+```
+
+```         
+```
